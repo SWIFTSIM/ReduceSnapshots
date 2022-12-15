@@ -12,3 +12,5 @@ The reduction software will:
     snapshot file, filtering out all other particles.
  4. The particle number metadata is synced across the new snapshot files.
  5. A new virtual snapshot file is produced for the new snapshot files.
+
+Example job scripts for various FLAMINGO simulations are provided.
