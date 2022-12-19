@@ -14,3 +14,10 @@ The reduction software will:
  5. A new virtual snapshot file is produced for the new snapshot files.
 
 Example job scripts for various FLAMINGO simulations are provided.
+
+Some snapshots do not contain any halos. Reduced snapshots for these snapshots
+are trivial, but can be hard to produce, since SOAP does not run on these
+snapshots. `create_empty_reduced_snapshot.py` can be used to generate empty
+reduced snapshots for those: snapshots that have the same structure as the
+other reduced snapshots, but that only contain size 0 datasets. This makes it
+possible to blindly run scripts on all reduced snapshots, even the empty ones.
