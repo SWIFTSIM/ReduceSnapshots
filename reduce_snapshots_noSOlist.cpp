@@ -53,21 +53,16 @@
  *    parallel regions. If you can afford it memory-wise, a larger number will
  *    lead to better performance.
  *
- * Two additional optional arguments are usually not given:
+ * Additional optional arguments:
  *  - HDF5 BLOCK SIZE: Maximum size (in bytes) that can be read while copying
  *    datasets from the original snapshot to the new file. A larger number
  *    uses more memory. The default is to read entire datasets. Note that
  *    applying a low limit here can lead to significant changes in dataset
  *    values if lossy compression is used, since the compression is applied
  *    on the individual chunks.
- *  - MAX STRUCTURE TYPE: Maximum structure type index for which an SO has been
- *    calculated by VR, as configured by the VR configuration variable
- *    Spherical_overdenisty_calculation_limited_to_structure_types. The default
- *    is 10, meaning only field halos are expected to have an SO. Note that a
- *    mismatch between this argument and the VR configuration variable will
- *    lead to errors or unexpected behaviour.
  *
  * @author Bert Vandenbroucke (vandenbroucke@strw.leidenuniv.nl)
+ * @author Rob McGibbon (mcgibbon@strw.leidenuniv.nl)
  */
 
 // local includes:
@@ -321,28 +316,6 @@ inline std::string compose_filename(const std::string prefix,
   return filename.str();
 }
 
-/**
- * @brief Read the scale factor from the given VR catalogue ".siminfo" file.
- *
- * @param siminfo Full path to the VR ".siminfo" file.
- * @return Scale factor for the VR catalogue.
- */
-inline double get_scale_factor(const std::string siminfo) {
-  std::ifstream siminfo_str(siminfo.c_str());
-  std::string line;
-  while (std::getline(siminfo_str, line)) {
-    std::istringstream line_str(line);
-    std::string label;
-    char colon;
-    double value;
-    line_str >> label >> colon >> value;
-    if (label == "ScaleFactor") {
-      return value;
-    }
-  }
-  my_error("Could not find ScaleFactor parameter in siminfo file!");
-  return -1.;
-}
 
 /**
  * @brief Convert a size in bytes to something a human understands.
@@ -617,9 +590,9 @@ public:
 };
 
 /**
- * @brief Internal representation of the SOs contained in a VR halo catalogue.
+ * @brief Internal representation of the SOs contained in a SOAP halo catalogue.
  *
- * Upon creation, the SOTable object will read the relevant VR catalogue files
+ * Upon creation, the SOTable object will read the relevant SOAP catalogue files
  * and store all the information that is required for later access. To minimise
  * memory usage, only SOs that are filtered out (i.e. with masses above the
  * mass limit) are kept in memory.
@@ -689,14 +662,10 @@ public:
    * @param mass_limit Mass limit above which SOs are retained. For now, we
    * assume this is given in the same units as used by VR (10^10 Msun?).
    * @param memory MemoryLogBlock used to log memory usage.
-   * @param max_structure_type Maximum structure type number for which an SO is
-   * computed, as set by the VR configuration variable
-   * Spherical_overdenisty_calculation_limited_to_structure_types (default: 10).
    */
   SOTable(const std::string prefix, const std::string mass_selection_name,
           const std::string radius_selection_name, const double mass_limit,
-          MemoryLog::MemoryLogBlock &memory,
-          const int32_t max_structure_type = 10)
+          MemoryLog::MemoryLogBlock &memory)
       : _prefix(prefix) {
 
     timelog(LOGLEVEL_GENERAL, "Reading SO catalog...");
@@ -705,9 +674,9 @@ public:
     // find out number of files
     HDF5FileOrGroup file = OpenFile(first_catalog_file, HDF5FileModeRead);
     const int32_t num_of_files = 1;
-    HDF5FileOrGroup VRgroup = OpenGroup(file, "VR");
-    const uint64_t refTotNhalo = GetDatasetSize(VRgroup, "ID");
-    CloseGroup(VRgroup);
+    HDF5FileOrGroup halogroup = OpenGroup(file, "InputHalos");
+    const uint64_t refTotNhalo = GetDatasetSize(halogroup, "index");
+    CloseGroup(halogroup);
     HDF5FileOrGroup SWIFTgroup = OpenGroup(file, "SWIFT");
     HDF5FileOrGroup cosmogroup = OpenGroup(SWIFTgroup, "Cosmology");
     double raw_scale_factor[1];
@@ -749,7 +718,7 @@ public:
       // now read all the relevant halo properties
       // we first read the entire file and then copy the appropriate bits
       // into the class arrays
-      std::vector<int32_t> structure_type(num_of_groups);
+      std::vector<int32_t> is_central(num_of_groups);
       std::vector<double> MSO(num_of_groups);
       std::vector<double> XSO(num_of_groups);
       std::vector<double> YSO(num_of_groups);
@@ -772,13 +741,13 @@ public:
         CloseGroup(SWIFTgroup);
       }
 
-      VRgroup = OpenGroup(file, "VR");
-      ReadEntireDataset(VRgroup, "StructureType", structure_type);
-      ReadEntireDataset(VRgroup, "ID", haloIDs);
-      ReadEntireDataset(VRgroup, "CentreOfPotential", CofP);
+      halogroup = OpenGroup(file, "InputHalos");
+      ReadEntireDataset(halogroup, "is_central", is_central);
+      ReadEntireDataset(halogroup, "index", haloIDs);
+      ReadEntireDataset(halogroup, "cofp", CofP);
       {
         double cgs_factor[1];
-        HDF5FileOrGroup dset = OpenDataset(VRgroup, "CentreOfPotential");
+        HDF5FileOrGroup dset = OpenDataset(halogroup, "cofp");
         ReadArrayAttribute(
             dset,
             "Conversion factor to CGS (including cosmological corrections)",
@@ -791,7 +760,7 @@ public:
           CofP[3 * ihalo + 2] *= conversion_factor;
         }
       }
-      CloseGroup(VRgroup);
+      CloseGroup(halogroup);
 
       for (size_t ihalo = 0; ihalo < num_of_groups; ++ihalo) {
         XSO[ihalo] = CofP[3 * ihalo];
@@ -857,7 +826,7 @@ public:
       CloseFile(file);
 
       // report on memory usage
-      memory_ifile.add_entry("structure_type", structure_type);
+      memory_ifile.add_entry("is_central", is_central);
       memory_ifile.add_entry("MSO", MSO);
       memory_ifile.add_entry("XSO", XSO);
       memory_ifile.add_entry("YSO", YSO);
@@ -871,7 +840,7 @@ public:
       uint64_t this_NSO = 0;
       uint64_t this_NSOkeep = 0;
       for (size_t ih = 0; ih < num_of_groups; ++ih) {
-        if (structure_type[ih] <= max_structure_type) {
+        if (is_central[ih] == 1) {
           ++this_NSO;
           _TotMSO += MSO[ih];
           if (MSO[ih] >= mass_limit) {
@@ -903,7 +872,7 @@ public:
       size_t iSO = 0;
       size_t iSOkeep = 0;
       for (size_t ih = 0; ih < num_of_groups; ++ih) {
-        if (structure_type[ih] <= max_structure_type) {
+        if (is_central[ih] == 1) {
           SO_to_halo[iSO] = ih;
           if (keep[ih]) {
             my_assert(RSO[ih] > 0., "Wrong RSO (%g)!", RSO[ih]);
@@ -1119,7 +1088,7 @@ int main(int argc, char **argv) {
                    "SNAPSHOT_FILE_PREFIX MEMBERSHIP__FILE_PREFIX MASS_LIMIT "
                    "OUTPUT_FILE_PREFIX "
                    "MASS_SELECTION_NAME RADIUS_SELECTION_NAME [CELLBUFSIZE] "
-                   "[HDF5BUFSIZE] [MAX_STRUCTURE_TYPE]"
+                   "[HDF5BUFSIZE]"
                 << std::endl;
     }
     my_error("Wrong command line arguments!");
@@ -1133,7 +1102,6 @@ int main(int argc, char **argv) {
   std::string radius_selection_name(argv[7]);
   const uint32_t cellbufsize = (argc > 8) ? atoi(argv[8]) : 8;
   const size_t hdf5bufsize = (argc > 9) ? atoll(argv[9]) : -1;
-  const uint32_t max_structure_type = (argc > 10) ? atoi(argv[10]) : 10;
 
   const std::string catalog_file = find_file(VR_output_prefix, "");
   //  const std::string siminfo_file = find_file(VR_output_prefix, ".siminfo");
@@ -1143,13 +1111,6 @@ int main(int argc, char **argv) {
       find_file(snapshot_file_prefix, "", ".hdf5", 0, /* only_one = */ false);
   const std::string master_membership_file =
       find_file(membership_file_prefix, "", ".hdf5", 0);
-
-  // read the scale factor, so that we can output it
-  // note that it is read again by SOTable, so we should probably move this
-  // to there
-  // or, you know, we could get rid of the output altogether, since it is no
-  // longer very useful
-  //  const double scale_factor = get_scale_factor(siminfo_file);
 
   // convert from a log10(M/Msun) mass limit to a 10^10 Msun mass limit, because
   // those are the units VR uses
@@ -1163,8 +1124,6 @@ int main(int argc, char **argv) {
     timelog(LOGLEVEL_GENERAL, "Arguments:");
     timelog(LOGLEVEL_GENERAL, "VR output prefix: %s", VR_output_prefix.c_str());
     timelog(LOGLEVEL_GENERAL, "  Catalog file: %s", catalog_file.c_str());
-    //    timelog(LOGLEVEL_GENERAL, "  Siminfo file: %s", siminfo_file.c_str());
-    //    timelog(LOGLEVEL_GENERAL, "    Scale factor: %g", scale_factor);
     timelog(LOGLEVEL_GENERAL, "Snapshot file prefix: %s",
             snapshot_file_prefix.c_str());
     timelog(LOGLEVEL_GENERAL, "  Master snapshot: %s", snapshot_file.c_str());
@@ -1181,8 +1140,6 @@ int main(int argc, char **argv) {
     timelog(LOGLEVEL_GENERAL, "Cellbufsize: %u", cellbufsize);
     timelog(LOGLEVEL_GENERAL, "HDF5bufsize: %s",
             human_readable_bytes(hdf5bufsize).c_str());
-    timelog(LOGLEVEL_GENERAL, "Maximum structure type for SO: %u",
-            max_structure_type);
     timelog(LOGLEVEL_GENERAL, "Mass limit in internal units: %g", mass_limit);
   }
 
@@ -1213,8 +1170,7 @@ int main(int argc, char **argv) {
 
   // read the SOTable: this is the entire first step mentioned above
   const SOTable SOtable(VR_output_prefix, mass_selection_name,
-                        radius_selection_name, mass_limit, memory,
-                        max_structure_type);
+                        radius_selection_name, mass_limit, memory);
 
   MPI_Barrier(MPI_COMM_WORLD);
 
