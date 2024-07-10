@@ -43,10 +43,6 @@ mem="${soapdir}/membership_${snapnum}/membership_${snapnum}"
 # full path to the output files, excluding the .hdf5 and rank extension
 out="${outdir}/flamingo_${snapnum}/flamingo_${snapnum}"
 
-# mass limit above which halos are kept, in log10(M/Msun)
-logMlim=12.5
-# mass variable used in the mass cut
-MlimVar=SO/200_crit/TotalMass
 # radius variable inside which particles are kept
 RlimVar=SO/50_crit/SORadius
 
@@ -69,5 +65,5 @@ export I_MPI_THREAD_YIELD=2
 # run the software using 32 ranks
 # note that the number of ranks cannot exceed the number of snapshot files,
 # so 32 is the maximum for an L1000N0900 hydro run
-mpirun -np 32 ${code} ${cat} ${snap} ${mem} ${logMlim} ${out} ${MlimVar} \
+mpirun -np 32 ${code} ${cat} ${snap} ${mem} ${out} \
   ${RlimVar} ${Ncell} ${block_size}

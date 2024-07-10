@@ -3,7 +3,7 @@ This software is written in C++ and needs to be compiled using the provided
 compilation script.
 
 The reduction software will:
- 1. Read the SOAP catalogue and create a list of halos that need to be kept.
+ 1. Read the SOAP catalogue.
  2. Loop over the cells in the SWIFT snapshot and for each cell, find particles
     that are inside a halo that needs to be kept. It will also assign a halo ID
     to each of these particles; if a halo belongs to multiple halos, the ID of
