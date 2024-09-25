@@ -708,10 +708,10 @@ public:
       {
         // A conversion factor is needed because SOAP can be set to output in physical units
         double cgs_factor[1];
-        HDF5FileOrGroup dset = OpenDataset(halogroup, "cofp");
+        HDF5FileOrGroup dset = OpenDataset(halogroup, "HaloCentre");
         ReadArrayAttribute(
             dset,
-            "Conversion factor to CGS (including cosmological corrections)",
+            "Conversion factor to physical CGS (including cosmological corrections)",
             cgs_factor);
         CloseDataset(dset);
         const double conversion_factor = cgs_factor[0] / unit_length_in_cgs;
@@ -749,7 +749,7 @@ public:
         HDF5FileOrGroup dset = OpenDataset(parent_group, radius_name);
         ReadArrayAttribute(
             dset,
-            "Conversion factor to CGS (including cosmological corrections)",
+            "Conversion factor to physical CGS (including cosmological corrections)",
             cgs_factor);
         CloseDataset(dset);
         for (uint_fast32_t igroup = 0; igroup < group_names.size(); ++igroup) {
@@ -794,7 +794,7 @@ public:
       size_t ikeep = 0;
       for (size_t ih = 0; ih < num_of_groups; ++ih) {
         if (keep[ih] == 1) {
-          my_assert(RSO[ih] > 0., "Wrong RSO (%g)!", RSO[ih]);
+          my_assert(RSO[ih] > 0., "Wrong RSO (%g) for halo %zu!", RSO[ih], ih);
           // convert distances from physical to co-moving
           // we need to do this because SWIFT outputs co-moving quantities
           _XSO[keep_file_offset + ikeep] = XSO[ih] / scale_factor;
@@ -805,6 +805,7 @@ public:
           ++ikeep;
         }
       }
+      keep_file_offset += ikeep;
     }
 
     timelog(LOGLEVEL_GENERAL, "Done reading SOAP catalog.");
