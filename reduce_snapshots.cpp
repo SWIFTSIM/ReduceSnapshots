@@ -36,14 +36,8 @@
  *  - test_0008 is the prefix for the output snapshot files
  *    (we will create the same number of files as the input files, using the
  *     same indices if it is a distributed snapshot file)
- *  TODO: Are the units correct for this?
  *  - SO_R_100_rhocrit is the radius used to determine if a particle belongs to
  *    an SO. 
- *    TODO: Why is this comment here?
- *    Note that we can only guarantee that all particles within this
- *    radius will be included if they are also present in the halo catalogue.
- *    In other words: you need to make sure the output radius for the SOs in
- *    the VR configuration file is set to at least this radius.
  *  - 512 is the number of SWIFT top-level cells that are processed in one go.
  *    This should be a proper divisor of the total number of top-level cells
  *    (an error is thrown if this is not the case). A larger number leads to
@@ -712,6 +706,7 @@ public:
       ReadEntireDataset(halogroup, "HaloCatalogueIndex", haloIDs);
       ReadEntireDataset(halogroup, "HaloCentre", CofP);
       {
+        // A conversion factor is needed because SOAP can be set to output in physical units
         double cgs_factor[1];
         HDF5FileOrGroup dset = OpenDataset(halogroup, "cofp");
         ReadArrayAttribute(
@@ -721,7 +716,6 @@ public:
         CloseDataset(dset);
         const double conversion_factor = cgs_factor[0] / unit_length_in_cgs;
         for (size_t ihalo = 0; ihalo < num_of_groups; ++ihalo) {
-          //TODO: Check scale factors are correct here
           CofP[3 * ihalo] *= conversion_factor;
           CofP[3 * ihalo + 1] *= conversion_factor;
           CofP[3 * ihalo + 2] *= conversion_factor;
@@ -750,6 +744,7 @@ public:
           parent_group = groups[igroup];
         }
         ReadEntireDataset(parent_group, radius_name, RSO);
+        // A conversion factor is needed because SOAP can be set to output in physical units
         double cgs_factor[1];
         HDF5FileOrGroup dset = OpenDataset(parent_group, radius_name);
         ReadArrayAttribute(
@@ -762,7 +757,6 @@ public:
         }
         const double conversion_factor = cgs_factor[0] / unit_length_in_cgs;
         for (size_t ihalo = 0; ihalo < num_of_groups; ++ihalo) {
-          //TODO Check scale factors are correct here
           RSO[ihalo] *= conversion_factor;
         }
       }
