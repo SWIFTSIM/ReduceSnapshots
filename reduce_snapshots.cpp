@@ -614,11 +614,9 @@ private:
   std::vector<size_t> _file_boundaries;
 
   /// Catalogue stats
-  /*! @brief Number of SOs. */
-  size_t _NSO;
-  /*! @brief Number of SOs above the mass limit. */
+  /*! @brief Number of halos which are kept. */
   size_t _Nkeep;
-  /*! @brief Number of halos in the catalogue (_NSO <= _Nhalo). */
+  /*! @brief Number of halos in the catalogue (_Nkeep <= _Nhalo). */
   size_t _Nhalo;
 
   /*! @brief Prefix of the catalogue file names. */
@@ -698,14 +696,12 @@ public:
       std::vector<double> CofP(3 * num_of_groups);
       std::vector<double> RSO(num_of_groups);
       std::vector<uint64_t> haloIDs(num_of_groups);
-      std::vector<bool> keep(num_of_groups, false);
+      std::vector<int> keep(num_of_groups, false);
 
-      double unit_mass_in_cgs, unit_length_in_cgs;
+      double unit_length_in_cgs;
       {
         HDF5FileOrGroup units = OpenGroup(file, "Units");
         double temp[1];
-        ReadArrayAttribute(units, "Unit mass in cgs (U_M)", temp);
-        unit_mass_in_cgs = temp[0];
         ReadArrayAttribute(units, "Unit length in cgs (U_L)", temp);
         unit_length_in_cgs = temp[0];
         CloseGroup(units);
@@ -740,8 +736,7 @@ public:
       }
       CofP.clear();
 
-      SOAPgroup = OpenGroup(file, "SOAP");
-      //TODO: Does this read correctly given array is ints not bool
+      HDF5FileOrGroup SOAPgroup = OpenGroup(file, "SOAP");
       ReadEntireDataset(SOAPgroup, "IncludedInReducedSnapshot", keep);
 
       {
@@ -789,7 +784,6 @@ public:
       for (size_t ih = 0; ih < num_of_groups; ++ih) {
         if (keep[ih] == 1) {
           ++this_Nkeep;
-          }
         }
       }
       // update the catalogue stats
@@ -805,23 +799,22 @@ public:
       // copy the relevant SO properties
       size_t ikeep = 0;
       for (size_t ih = 0; ih < num_of_groups; ++ih) {
-        if (keep[ih]) {
+        if (keep[ih] == 1) {
           my_assert(RSO[ih] > 0., "Wrong RSO (%g)!", RSO[ih]);
           // convert distances from physical to co-moving
           // we need to do this because SWIFT outputs co-moving quantities
-          _XSO[keep_file_offset + iSOkeep] = XSO[ih] / scale_factor;
-          _YSO[keep_file_offset + iSOkeep] = YSO[ih] / scale_factor;
-          _ZSO[keep_file_offset + iSOkeep] = ZSO[ih] / scale_factor;
-          _RSO[keep_file_offset + iSOkeep] = RSO[ih] / scale_factor;
-          _haloIDs[keep_file_offset + iSOkeep] = haloIDs[ih];
+          _XSO[keep_file_offset + ikeep] = XSO[ih] / scale_factor;
+          _YSO[keep_file_offset + ikeep] = YSO[ih] / scale_factor;
+          _ZSO[keep_file_offset + ikeep] = ZSO[ih] / scale_factor;
+          _RSO[keep_file_offset + ikeep] = RSO[ih] / scale_factor;
+          _haloIDs[keep_file_offset + ikeep] = haloIDs[ih];
           ++ikeep;
         }
       }
     }
 
     timelog(LOGLEVEL_GENERAL, "Done reading SOAP catalog.");
-    timelog(LOGLEVEL_GENERAL,
-            "Stats: totNhalo: %zu, totNkeep: %zu", _Nhalo, _Nkeep);
+    timelog(LOGLEVEL_GENERAL, "Stats: totNhalo: %zu, totNkeep: %zu", _Nhalo, _Nkeep);
 
     my_assert(_Nkeep == _XSO.size(), "Size mismatch!");
     my_assert(_Nkeep == _YSO.size(), "Size mismatch!");
@@ -1003,11 +996,6 @@ int main(int argc, char **argv) {
   const std::string master_membership_file =
       find_file(membership_file_prefix, "", ".hdf5", 0);
 
-  // convert from a log10(M/Msun) mass limit to a 10^10 Msun mass limit, because
-  // those are the units VR uses
-  mass_limit -= 10.;
-  mass_limit = std::pow(10., mass_limit);
-
   // output (only rank 0, because we don't want to clutter the stdout
   //  - just yet)
   if (MPI_rank == 0) {
@@ -1024,14 +1012,11 @@ int main(int argc, char **argv) {
             master_membership_file.c_str());
     timelog(LOGLEVEL_GENERAL, "Output file prefix: %s",
             output_file_prefix.c_str());
-    timelog(LOGLEVEL_GENERAL, "Mass selection name: %s",
-            mass_selection_name.c_str());
     timelog(LOGLEVEL_GENERAL, "Radius selection name: %s",
             radius_selection_name.c_str());
     timelog(LOGLEVEL_GENERAL, "Cellbufsize: %u", cellbufsize);
     timelog(LOGLEVEL_GENERAL, "HDF5bufsize: %s",
             human_readable_bytes(hdf5bufsize).c_str());
-    timelog(LOGLEVEL_GENERAL, "Mass limit in internal units: %g", mass_limit);
   }
 
   if (MPI_rank == 0) {
@@ -1060,8 +1045,7 @@ int main(int argc, char **argv) {
   }
 
   // read the SOTable: this is the entire first step mentioned above
-  const SOTable SOtable(SOAP_output_prefix, mass_selection_name,
-                        radius_selection_name, mass_limit, memory);
+  const SOTable SOtable(SOAP_output_prefix, radius_selection_name, memory);
 
   MPI_Barrier(MPI_COMM_WORLD);
 
@@ -1524,7 +1508,7 @@ int main(int argc, char **argv) {
               // if the cell positions were periodically wrapped, we use a
               // different condition to check whether the particle is in the
               // cell
-              if (!wrap) {
+              if (!wrap[ix]) {
                 if (cell_low[ix] > partpos[3 * totipart + ix] ||
                     cell_high[ix] < partpos[3 * totipart + ix]) {
                   is_out = true;
