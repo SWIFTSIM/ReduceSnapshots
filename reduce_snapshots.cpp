@@ -654,9 +654,11 @@ public:
     CloseGroup(cosmogroup);
     CloseFile(file);
 
-    timelog(LOGLEVEL_GENERAL,
-            "Found %zu halos in %i file(s). Scale factor is %g.", refTotNhalo,
-            num_of_files, scale_factor);
+    if (MPI_rank == 0) {
+      timelog(LOGLEVEL_GENERAL,
+              "Found %zu halos in %i file(s). Scale factor is %g.", refTotNhalo,
+              num_of_files, scale_factor);
+    }
 
     // read all the SO files and collect general catalogue statistics
     _Nhalo = 0;
@@ -777,7 +779,15 @@ public:
       uint64_t this_Nkeep = 0;
       for (size_t ih = 0; ih < num_of_groups; ++ih) {
         if (keep[ih] == 1) {
-          ++this_Nkeep;
+          if (RSO[ih] > 0) {
+            ++this_Nkeep;
+          } else {
+            if (MPI_rank == 0) {
+              timelog(LOGLEVEL_GENERAL,
+                      "Wrong RSO (%g) for halo %zu (halo catalogue index %zu)!",
+                      RSO[ih], ih, haloIDs[ih]);
+            }
+          }
         }
       }
       // update the catalogue stats
@@ -793,8 +803,7 @@ public:
       // copy the relevant SO properties
       size_t ikeep = 0;
       for (size_t ih = 0; ih < num_of_groups; ++ih) {
-        if (keep[ih] == 1) {
-          my_assert(RSO[ih] > 0., "Wrong RSO (%g) for halo %zu!", RSO[ih], ih);
+        if (keep[ih] == 1 && RSO[ih] > 0.) {
           // convert distances from physical to co-moving
           // we need to do this because SWIFT outputs co-moving quantities
           _XSO[keep_file_offset + ikeep] = XSO[ih] / scale_factor;
@@ -808,8 +817,10 @@ public:
       keep_file_offset += ikeep;
     }
 
+    if (MPI_rank == 0) {
+      timelog(LOGLEVEL_GENERAL, "Stats: totNhalo: %zu, totNkeep: %zu", _Nhalo, _Nkeep);
+    }
     timelog(LOGLEVEL_GENERAL, "Done reading SOAP catalog.");
-    timelog(LOGLEVEL_GENERAL, "Stats: totNhalo: %zu, totNkeep: %zu", _Nhalo, _Nkeep);
 
     my_assert(_Nkeep == _XSO.size(), "Size mismatch!");
     my_assert(_Nkeep == _YSO.size(), "Size mismatch!");
@@ -2256,7 +2267,7 @@ int main(int argc, char **argv) {
   MPI_Barrier(MPI_COMM_WORLD);
   if (MPI_rank == 0) {
     std::cout << "Done." << std::endl;
-    std::cout << "Took " << global_timer.current_time() << " ms." << std::endl;
+    std::cout << "Took " << global_timer.current_time() << " s." << std::endl;
   }
 
   // wait for the other ranks and exit

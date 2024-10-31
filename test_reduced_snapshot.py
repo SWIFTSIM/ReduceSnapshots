@@ -46,6 +46,8 @@ def check_particles_present(soap_filename, snap_filename, radius_name):
     soap_centre = soap.input_halos.halo_centre[soap_mask]
     if radius_name == 'R200c':
         soap_halo = soap.spherical_overdensity_200_crit
+    elif radius_name == 'R100c':
+        soap_halo = soap.spherical_overdensity_100_crit
     else:
         raise NotImplementedError
     soap_mass = soap_halo.total_mass[soap_mask]
@@ -83,7 +85,8 @@ def check_particles_present(soap_filename, snap_filename, radius_name):
             r = np.sqrt(np.sum(pos**2, axis=1))
             # Count particles within SO radius
             snap_npart = np.sum(r < soap_r[i_halo])
-            if snap_npart != soap_npart[i_halo].value:
+            tol = 0.0001
+            if (snap_npart < (1-tol) * soap_npart[i_halo].value) or (snap_npart > (1+tol) * soap_npart[i_halo].value):
                 print(f'Mismatch in number of {part_type} particles for halo {i_halo}')
                 print(f'Snapshot: {snap_npart}, SOAP: {soap_npart[i_halo].value}')
 
@@ -97,7 +100,7 @@ if __name__ == "__main__":
     argparser.add_argument("soap", help="SOAP catalogue")
     argparser.add_argument("snap", help="Reduced snapshot")
     argparser.add_argument(
-        "radius", help="Radius within which particles are kept. Valid options: R200c"
+        "radius", help="Radius within which particles are kept. Valid options: R200c, R100c"
     )
     args = argparser.parse_args()
 
