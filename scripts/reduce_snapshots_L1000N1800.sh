@@ -1,15 +1,18 @@
 #! /bin/bash
 
 # Create reduced snapshots from a SOAP catalogue and a full snapshot
+#
+# Submit passing run and snapshots to process, e.g.
+# cd ReduceSnapshots
+# mkdir logs
+# sbatch -J HYDRO_FIDUCIAL --array=0-77%4 ./scripts/reduce_snapshots_L1000N1800.sh
 
-#SBATCH --ntasks 64
-#SBATCH --cpus-per-task=2
-#SBATCH -o logs/job_reduce.%a.out
-#SBATCH -e logs/job_reduce.%a.err
+#SBATCH --ntasks=32
+#SBATCH --cpus-per-task=4
+#SBATCH -o logs/reduce_L1000N1800_%x.%a.%A.out
 #SBATCH -p cosma8
 #SBATCH -A dp004
-#SBATCH -t 12:00:00
-#SBATCH --array=37,77
+#SBATCH -t 02:00:00
 
 set -e
 
@@ -20,13 +23,11 @@ module load gnu_comp/14.1.0 openmpi/5.0.3 parallel_hdf5/1.12.3
 snapnum=`printf '%04d' ${SLURM_ARRAY_TASK_ID}`
 
 # folder where the snapshot files are stored
-snapdir="/cosma8/data/dp004/flamingo/Runs/L1000N0900/${SLURM_JOB_NAME}/snapshots"
+snapdir="/cosma8/data/dp004/flamingo/Runs/L1000N1800/${SLURM_JOB_NAME}/snapshots"
 # folder where the SOAP files are stored
-# TODO: Use the flamingo directory
-soapdir="/snap8/scratch/dp004/dc-mcgi1/soap_flamingo/Runs/L1000N0900/${SLURM_JOB_NAME}/SOAP_uncompressed/HBTplus"
+soapdir="/cosma8/data/dp004/flamingo/Runs/L1000N1800/${SLURM_JOB_NAME}/SOAP-HBT"
 # output folder for the reduced snapshot
-outdir="/snap8/scratch/dp004/dc-mcgi1/reduce_snapshots/L1000N0900/${SLURM_JOB_NAME}"
-
+outdir="/cosma8/data/dp004/dc-mcgi1/FLAMINGO/Runs/L1000N1800/${SLURM_JOB_NAME}/snapshots_reduced"
 
 # full path to the compiled snapshot reduction executable
 code=/cosma/home/dp004/${USER}/ReduceSnapshots/reduce_snapshots
@@ -36,16 +37,12 @@ cat="${soapdir}/halo_properties_${snapnum}.hdf5"
 # (i.e. flamingo_0077 instead of flamingo_0077.2.hdf5 or flamingo_0077.hdf5)
 snap="${snapdir}/flamingo_${snapnum}/flamingo_${snapnum}"
 # full path to the membership files, excluding the .hdf5 and rank extension
-# TODO: Use soapdir from above
-memdir="/cosma8/data/dp004/flamingo/Runs/L1000N0900/${SLURM_JOB_NAME}/SOAP-HBT"
-mem="${memdir}/membership_${snapnum}/membership_${snapnum}"
+mem="${soapdir}/membership_${snapnum}/membership_${snapnum}"
 # full path to the output files, excluding the .hdf5 and rank extension
 out="${outdir}/flamingo_${snapnum}/flamingo_${snapnum}"
 
 # radius variable inside which particles are kept
-# TODO: Change to 100_crit (for testing the N0900 we have halos with npart < 100
-# which have no 100_crit values)
-RlimVar=SO/200_crit/SORadius
+RlimVar=SO/100_crit/SORadius
 
 # number of SWIFT cells that is processed in one go
 # a larger number is better for performance, while a smaller number is better
@@ -63,8 +60,6 @@ block_size=18446744073709551615
 export I_MPI_WAIT_MODE=1
 export I_MPI_THREAD_YIELD=2
 
-# run the software using 16 ranks
 # note that the number of ranks cannot exceed the number of snapshot files,
-# so 32 is the maximum for an L1000N0900 hydro run
-mpirun -np 16 ${code} ${cat} ${snap} ${mem} ${out} \
+mpirun -- ${code} ${cat} ${snap} ${mem} ${out} \
   ${RlimVar} ${Ncell} ${block_size}
