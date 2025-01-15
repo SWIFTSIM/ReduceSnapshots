@@ -63,3 +63,5 @@ export I_MPI_THREAD_YIELD=2
 # note that the number of ranks cannot exceed the number of snapshot files,
 mpirun -- ${code} ${cat} ${snap} ${mem} ${out} \
   ${RlimVar} ${Ncell} ${block_size}
+
+echo "Job complete!"

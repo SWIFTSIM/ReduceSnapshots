@@ -5,14 +5,14 @@
 # Submit passing run and snapshots to process, e.g.
 # cd ReduceSnapshots
 # mkdir logs
-# sbatch -J HYDRO_FIDUCIAL --array=0-78%4 ./scripts/reduce_snapshots_L1000N3600.sh
+# sbatch -J HYDRO_FIDUCIAL --array=0-78%4 ./scripts/reduce_snapshots_L2800N5040.sh
 
-#SBATCH --ntasks=64
-#SBATCH --cpus-per-task=2
-#SBATCH -o logs/reduce_L1000N3600_%x.%a.%A.out
+#SBATCH --ntasks=32
+#SBATCH --cpus-per-task=4
+#SBATCH -o /snap8/scratch/dp004/dc-mcgi1/ReduceSnapshots/logs/reduce_L2800N5040_%x.%a.%A.out
 #SBATCH -p cosma8
 #SBATCH -A dp004
-#SBATCH -t 04:00:00
+#SBATCH -t 08:00:00
 
 set -e
 
@@ -23,11 +23,11 @@ module load gnu_comp/14.1.0 openmpi/5.0.3 parallel_hdf5/1.12.3
 snapnum=`printf '%04d' ${SLURM_ARRAY_TASK_ID}`
 
 # folder where the snapshot files are stored
-snapdir="/cosma8/data/dp004/flamingo/Runs/L1000N3600/${SLURM_JOB_NAME}/snapshots"
+snapdir="/cosma8/data/dp004/flamingo/Runs/L2800N5040/${SLURM_JOB_NAME}/snapshots"
 # folder where the SOAP files are stored
-soapdir="/cosma8/data/dp004/flamingo/Runs/L1000N3600/${SLURM_JOB_NAME}/SOAP-HBT"
+soapdir="/cosma8/data/dp004/flamingo/Runs/L2800N5040/${SLURM_JOB_NAME}/SOAP-HBT"
 # output folder for the reduced snapshot
-outdir="/cosma8/data/dp004/dc-mcgi1/FLAMINGO/Runs/L1000N3600/${SLURM_JOB_NAME}/snapshots_reduced"
+outdir="/cosma8/data/dp004/dc-mcgi1/FLAMINGO/Runs/L2800N5040/${SLURM_JOB_NAME}/snapshots_reduced"
 
 # full path to the compiled snapshot reduction executable
 code=/cosma/home/dp004/${USER}/ReduceSnapshots/reduce_snapshots
@@ -65,4 +65,3 @@ mpirun -- ${code} ${cat} ${snap} ${mem} ${out} \
   ${RlimVar} ${Ncell} ${block_size}
 
 echo "Job complete!"
-

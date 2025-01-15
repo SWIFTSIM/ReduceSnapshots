@@ -2162,16 +2162,13 @@ int main(int argc, char **argv) {
       CloseDataset(ds);
       std::vector<std::string> membernames;
       std::vector<std::string> memberdescr;
-      membernames.push_back("GroupNr_all");
-      memberdescr.push_back("Index of halo in which this particle is a member "
-                            "(bound or unbound), or -1 if none");
       membernames.push_back("GroupNr_bound");
       memberdescr.push_back("Index of halo in which this particle is a bound "
                             "member, or -1 if none");
       membernames.push_back("Rank_bound");
       memberdescr.push_back("Ranking by binding energy of the bound particles "
                             "(first in halo=0), or -1 if not bound");
-      for (uint_fast8_t imember = 0; imember < 3; ++imember) {
+      for (uint_fast8_t imember = 0; imember < 2; ++imember) {
         WriteVirtualDataset<int32_t>(new_group, membernames[imember],
                                      groupnamestr.str(), file_offsets[itype],
                                      all_files);

@@ -7,10 +7,12 @@ Take a SOAP catalogue and a reduced snapshot and verify that all particles
 are present. Not parallelised. Also plots a mass function of the halos kept.
 
 Usage:
+
   python test_reduced_snapshot.py SOAP_CATALOGUE REDUCED_SNAPSHOT RADIUS
-where SOAP_CATALOGUE is the catalogue that was used to generate
-REDUCED_SNAPSHOT, keeping all particles within RADIUS (e.g. R200c) of
-the flagged halos.
+
+where SOAP_CATALOGUE is the catalogue that was used to generate the
+REDUCED_SNAPSHOT, where all particles within RADIUS (e.g. R200c) of
+the flagged halos were kept.
 """
 
 import argparse
