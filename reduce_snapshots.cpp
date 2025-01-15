@@ -1,10 +1,9 @@
 /**
  * @file reduce_snapshots.cpp
  *
- * @brief Program that takes a VR halo catalogue and a SWIFT snapshot and
+ * @brief Program that takes a SOAP halo catalogue and a SWIFT snapshot and
  * creates a new (SWIFT compatible) snapshot that only contains the particles
- * that are part of spherical overdensities (SOs) with a mass larger than a
- * specified limit.
+ * that are part of spherical overdensities (SOs) of the flagged halos.
  *
  * Compilation requires MPI (any version) and HDF5 (>1.10.0).
  * Example compilation commands:
@@ -27,24 +26,18 @@
  *
  * Example run command:
  *  mpirun -np 16 ./reduce_snapshots halos_0008 flamingo_0008/flamingo_0008 \
- *    12 test_0008 SO_Mass_200_rhocrit SO_R_100_rhocrit 512
+ *    test_0008 SO/50_crit/SORadius 512
  * Where all arguments are positional and:
  *  - halos_0008 is the prefix for the halo catalogue files
  *    (we require halos_0008.siminfo, halos_0008.properties[.*],
  *     halos_0008.catalog_SOlist[.*])
  *  - flamingo_0008/flamingo_0008 is the prefix for a (distributed) SWIFT
  *    snapshot file (we require at least flamingo_0008/flamingo_0008.hdf5)
- *  - 12 is the mass limit (in log10(M/Msun)) used to filter SOs
  *  - test_0008 is the prefix for the output snapshot files
  *    (we will create the same number of files as the input files, using the
  *     same indices if it is a distributed snapshot file)
- *  - SO_Mass_200_rhocrit is the name of the mass variable in the catalogue to
- *    which we apply the mass filter
  *  - SO_R_100_rhocrit is the radius used to determine if a particle belongs to
- *    an SO. Note that we can only guarantee that all particles within this
- *    radius will be included if they are also present in the halo catalogue.
- *    In other words: you need to make sure the output radius for the SOs in
- *    the VR configuration file is set to at least this radius.
+ *    an SO. 
  *  - 512 is the number of SWIFT top-level cells that are processed in one go.
  *    This should be a proper divisor of the total number of top-level cells
  *    (an error is thrown if this is not the case). A larger number leads to
@@ -594,20 +587,11 @@ public:
  *
  * Upon creation, the SOTable object will read the relevant SOAP catalogue files
  * and store all the information that is required for later access. To minimise
- * memory usage, only SOs that are filtered out (i.e. with masses above the
- * mass limit) are kept in memory.
+ * memory usage, only SOs that are filtered out are kept in memory.
  *
- * The SOTable stores the information required to access the ParticleIDs that
- * belong to a specific SO, but does not actually store these in a way that
- * is directly usable. If you want to get a dictionary (multimap) with all
- * the ParticleIDs in a particular set of SOs, you need to explicitly request
- * it using the member function chunk_IDs().
  */
 class SOTable {
 private:
-  /// SO properties unrelated to IDs:
-  /*! @brief SO masses. */
-  std::vector<double> _MSO;
   /*! @brief SO coordinates: x. */
   std::vector<double> _XSO;
   /*! @brief SO coordinates: y. */
@@ -624,17 +608,10 @@ private:
   std::vector<size_t> _file_boundaries;
 
   /// Catalogue stats
-  /*! @brief Number of SOs. */
-  size_t _NSO;
-  /*! @brief Number of SOs above the mass limit. */
-  size_t _NSOkeep;
-  /*! @brief Number of halos in the catalogue (_NSO <= _Nhalo). */
+  /*! @brief Number of halos which are kept. */
+  size_t _Nkeep;
+  /*! @brief Number of halos in the catalogue (_Nkeep <= _Nhalo). */
   size_t _Nhalo;
-
-  /* @brief Total mass of all SOs. */
-  double _TotMSO;
-  /*! @brief Total mass of all SOs above the mass limit. */
-  double _TotMSOkeep;
 
   /*! @brief Prefix of the catalogue file names. */
   const std::string _prefix;
@@ -643,62 +620,52 @@ public:
   /**
    * @brief Constructor.
    *
-   * Does the full parsing of the SO catalogue and can therefore require quite
+   * Does the full parsing of the SOAP catalogue and can therefore require quite
    * some time and memory.
    *
    * @param prefix Prefix of the catalogue file names. We require the following
    * files to be present: prefix.properties[.*], prefix.siminfo,
    * prefix.catalog_SOlist[.*].
-   * @param mass_selection_name Name of the array in the .properties file that
-   * will be used in the mass filtering. A sensible example would be
-   * SO_Mass_200_rhocrit, but any other valid array would work (including those
-   * that do not represent masses at all, so be careful!).
    * @param radius_selection_name Name of the array in the .properties file that
    * will be used for spatial particle filtering. Ideally, this name would
    * match SO_R_XXX_rhocrit, where XXX is the value of the VR configuration
    * variable Overdensity_output_maximum_radius_in_critical_density. But again,
    * any possible valid array would work (including those that do not represent
    * any radius at all, so be careful - again!).
-   * @param mass_limit Mass limit above which SOs are retained. For now, we
-   * assume this is given in the same units as used by VR (10^10 Msun?).
    * @param memory MemoryLogBlock used to log memory usage.
    */
-  SOTable(const std::string prefix, const std::string mass_selection_name,
-          const std::string radius_selection_name, const double mass_limit,
+  SOTable(const std::string prefix, const std::string radius_selection_name,
           MemoryLog::MemoryLogBlock &memory)
       : _prefix(prefix) {
 
-    timelog(LOGLEVEL_GENERAL, "Reading SO catalog...");
+    timelog(LOGLEVEL_GENERAL, "Reading SOAP catalog...");
 
     const std::string first_catalog_file = find_file(prefix, "");
     // find out number of files
     HDF5FileOrGroup file = OpenFile(first_catalog_file, HDF5FileModeRead);
     const int32_t num_of_files = 1;
     HDF5FileOrGroup halogroup = OpenGroup(file, "InputHalos");
-    const uint64_t refTotNhalo = GetDatasetSize(halogroup, "index");
+    const uint64_t refTotNhalo = GetDatasetSize(halogroup, "HaloCatalogueIndex");
     CloseGroup(halogroup);
-    HDF5FileOrGroup SWIFTgroup = OpenGroup(file, "SWIFT");
-    HDF5FileOrGroup cosmogroup = OpenGroup(SWIFTgroup, "Cosmology");
+    HDF5FileOrGroup cosmogroup = OpenGroup(file, "Cosmology");
     double raw_scale_factor[1];
     ReadArrayAttribute(cosmogroup, "Scale-factor", raw_scale_factor);
     const double scale_factor = raw_scale_factor[0];
     CloseGroup(cosmogroup);
-    CloseGroup(SWIFTgroup);
     CloseFile(file);
 
-    timelog(LOGLEVEL_GENERAL,
-            "Found %zu halos in %i file(s). Scale factor is %g.", refTotNhalo,
-            num_of_files, scale_factor);
+    if (MPI_rank == 0) {
+      timelog(LOGLEVEL_GENERAL,
+              "Found %zu halos in %i file(s). Scale factor is %g.", refTotNhalo,
+              num_of_files, scale_factor);
+    }
 
     // read all the SO files and collect general catalogue statistics
     _Nhalo = 0;
-    _NSO = 0;
-    _NSOkeep = 0;
-    _TotMSO = 0.;
-    _TotMSOkeep = 0.;
+    _Nkeep = 0;
     // file offsets used for various purposes
     // the bookkeeping in the loop is quite tedious!
-    size_t SOkeep_file_offset = 0;
+    size_t keep_file_offset = 0;
     // register a loop scope in the memory log
     auto memory_ifile_loop = memory.add_loop_scope("File loop");
     for (int32_t ifile = 0; ifile < num_of_files; ++ifile) {
@@ -719,38 +686,34 @@ public:
       // we first read the entire file and then copy the appropriate bits
       // into the class arrays
       std::vector<int32_t> is_central(num_of_groups);
-      std::vector<double> MSO(num_of_groups);
       std::vector<double> XSO(num_of_groups);
       std::vector<double> YSO(num_of_groups);
       std::vector<double> ZSO(num_of_groups);
       std::vector<double> CofP(3 * num_of_groups);
       std::vector<double> RSO(num_of_groups);
       std::vector<uint64_t> haloIDs(num_of_groups);
-      std::vector<bool> keep(num_of_groups, false);
+      std::vector<int> keep(num_of_groups, false);
 
-      double unit_mass_in_cgs, unit_length_in_cgs;
+      double unit_length_in_cgs;
       {
-        HDF5FileOrGroup SWIFTgroup = OpenGroup(file, "SWIFT");
-        HDF5FileOrGroup units = OpenGroup(SWIFTgroup, "InternalCodeUnits");
+        HDF5FileOrGroup units = OpenGroup(file, "Units");
         double temp[1];
-        ReadArrayAttribute(units, "Unit mass in cgs (U_M)", temp);
-        unit_mass_in_cgs = temp[0];
         ReadArrayAttribute(units, "Unit length in cgs (U_L)", temp);
         unit_length_in_cgs = temp[0];
         CloseGroup(units);
-        CloseGroup(SWIFTgroup);
       }
 
       halogroup = OpenGroup(file, "InputHalos");
-      ReadEntireDataset(halogroup, "is_central", is_central);
-      ReadEntireDataset(halogroup, "index", haloIDs);
-      ReadEntireDataset(halogroup, "cofp", CofP);
+      ReadEntireDataset(halogroup, "IsCentral", is_central);
+      ReadEntireDataset(halogroup, "HaloCatalogueIndex", haloIDs);
+      ReadEntireDataset(halogroup, "HaloCentre", CofP);
       {
+        // A conversion factor is needed because SOAP can be set to output in physical units
         double cgs_factor[1];
-        HDF5FileOrGroup dset = OpenDataset(halogroup, "cofp");
+        HDF5FileOrGroup dset = OpenDataset(halogroup, "HaloCentre");
         ReadArrayAttribute(
             dset,
-            "Conversion factor to CGS (including cosmological corrections)",
+            "Conversion factor to physical CGS (including cosmological corrections)",
             cgs_factor);
         CloseDataset(dset);
         const double conversion_factor = cgs_factor[0] / unit_length_in_cgs;
@@ -769,32 +732,9 @@ public:
       }
       CofP.clear();
 
-      {
-        const auto mass_path = decompose_dataset_path(mass_selection_name);
-        const auto group_names = mass_path.first;
-        const auto mass_name = mass_path.second;
-        HDF5FileOrGroup parent_group = file;
-        std::vector<HDF5FileOrGroup> groups(group_names.size());
-        for (uint_fast32_t igroup = 0; igroup < group_names.size(); ++igroup) {
-          groups[igroup] = OpenGroup(parent_group, group_names[igroup]);
-          parent_group = groups[igroup];
-        }
-        ReadEntireDataset(parent_group, mass_name, MSO);
-        double cgs_factor[1];
-        HDF5FileOrGroup dset = OpenDataset(parent_group, mass_name);
-        ReadArrayAttribute(
-            dset,
-            "Conversion factor to CGS (including cosmological corrections)",
-            cgs_factor);
-        CloseDataset(dset);
-        for (uint_fast32_t igroup = 0; igroup < group_names.size(); ++igroup) {
-          CloseGroup(groups[igroup]);
-        }
-        const double conversion_factor = cgs_factor[0] / unit_mass_in_cgs;
-        for (size_t ihalo = 0; ihalo < num_of_groups; ++ihalo) {
-          MSO[ihalo] *= conversion_factor;
-        }
-      }
+      HDF5FileOrGroup SOAPgroup = OpenGroup(file, "SOAP");
+      ReadEntireDataset(SOAPgroup, "IncludedInReducedSnapshot", keep);
+
       {
         const auto radius_path = decompose_dataset_path(radius_selection_name);
         const auto group_names = radius_path.first;
@@ -806,11 +746,12 @@ public:
           parent_group = groups[igroup];
         }
         ReadEntireDataset(parent_group, radius_name, RSO);
+        // A conversion factor is needed because SOAP can be set to output in physical units
         double cgs_factor[1];
         HDF5FileOrGroup dset = OpenDataset(parent_group, radius_name);
         ReadArrayAttribute(
             dset,
-            "Conversion factor to CGS (including cosmological corrections)",
+            "Conversion factor to physical CGS (including cosmological corrections)",
             cgs_factor);
         CloseDataset(dset);
         for (uint_fast32_t igroup = 0; igroup < group_names.size(); ++igroup) {
@@ -827,7 +768,6 @@ public:
 
       // report on memory usage
       memory_ifile.add_entry("is_central", is_central);
-      memory_ifile.add_entry("MSO", MSO);
       memory_ifile.add_entry("XSO", XSO);
       memory_ifile.add_entry("YSO", YSO);
       memory_ifile.add_entry("ZSO", ZSO);
@@ -835,76 +775,60 @@ public:
       memory_ifile.add_entry("haloIDs", haloIDs);
       memory_ifile.add_entry("keep", keep);
 
-      // do a first pass to figure out how many halos are SOs, and how many
-      // SOs we want to keep
-      uint64_t this_NSO = 0;
-      uint64_t this_NSOkeep = 0;
+      // Count how many halos we are keeping
+      uint64_t this_Nkeep = 0;
       for (size_t ih = 0; ih < num_of_groups; ++ih) {
-        if (is_central[ih] == 1) {
-          ++this_NSO;
-          _TotMSO += MSO[ih];
-          if (MSO[ih] >= mass_limit) {
-            _TotMSOkeep += MSO[ih];
-            ++this_NSOkeep;
-            keep[ih] = true;
+        if (keep[ih] == 1) {
+          if (RSO[ih] > 0) {
+            ++this_Nkeep;
+          } else {
+            if (MPI_rank == 0) {
+              timelog(LOGLEVEL_GENERAL,
+                      "Wrong RSO (%g) for halo %zu (halo catalogue index %zu)!",
+                      RSO[ih], ih, haloIDs[ih]);
+            }
           }
         }
       }
       // update the catalogue stats
-      _NSO += this_NSO;
-      _NSOkeep += this_NSOkeep;
+      _Nkeep += this_Nkeep;
 
       // now that we know the size of this file, we can reallocate the class
       // arrays
-      _MSO.resize(SOkeep_file_offset + this_NSOkeep, 0.);
-      _XSO.resize(SOkeep_file_offset + this_NSOkeep, 0.);
-      _YSO.resize(SOkeep_file_offset + this_NSOkeep, 0.);
-      _ZSO.resize(SOkeep_file_offset + this_NSOkeep, 0.);
-      _RSO.resize(SOkeep_file_offset + this_NSOkeep, 0.);
-      _haloIDs.resize(SOkeep_file_offset + this_NSOkeep, 0);
-      // now do a second pass to copy the relevant SO properties
-      // we also create an inverse SO->halo mapping, since we need it to
-      // access the keep array using SO rather than halo indices
-      std::vector<size_t> SO_to_halo(this_NSO, 0);
-      memory_ifile.add_entry("SO_to_halo", SO_to_halo);
-      // since we are looping over three sets with different sizes, we need
-      // two additional loop indices
-      size_t iSO = 0;
-      size_t iSOkeep = 0;
+      _XSO.resize(keep_file_offset + this_Nkeep, 0.);
+      _YSO.resize(keep_file_offset + this_Nkeep, 0.);
+      _ZSO.resize(keep_file_offset + this_Nkeep, 0.);
+      _RSO.resize(keep_file_offset + this_Nkeep, 0.);
+      _haloIDs.resize(keep_file_offset + this_Nkeep, 0);
+      // copy the relevant SO properties
+      size_t ikeep = 0;
       for (size_t ih = 0; ih < num_of_groups; ++ih) {
-        if (is_central[ih] == 1) {
-          SO_to_halo[iSO] = ih;
-          if (keep[ih]) {
-            my_assert(RSO[ih] > 0., "Wrong RSO (%g)!", RSO[ih]);
-            _MSO[SOkeep_file_offset + iSOkeep] = MSO[ih];
-            // convert distances from physical to co-moving
-            // we need to do this because SWIFT outputs co-moving quantities
-            _XSO[SOkeep_file_offset + iSOkeep] = XSO[ih] / scale_factor;
-            _YSO[SOkeep_file_offset + iSOkeep] = YSO[ih] / scale_factor;
-            _ZSO[SOkeep_file_offset + iSOkeep] = ZSO[ih] / scale_factor;
-            _RSO[SOkeep_file_offset + iSOkeep] = RSO[ih] / scale_factor;
-            _haloIDs[SOkeep_file_offset + iSOkeep] = haloIDs[ih];
-            ++iSOkeep;
-          }
-          ++iSO;
+        if (keep[ih] == 1 && RSO[ih] > 0.) {
+          // convert distances from physical to co-moving
+          // we need to do this because SWIFT outputs co-moving quantities
+          _XSO[keep_file_offset + ikeep] = XSO[ih] / scale_factor;
+          _YSO[keep_file_offset + ikeep] = YSO[ih] / scale_factor;
+          _ZSO[keep_file_offset + ikeep] = ZSO[ih] / scale_factor;
+          _RSO[keep_file_offset + ikeep] = RSO[ih] / scale_factor;
+          _haloIDs[keep_file_offset + ikeep] = haloIDs[ih];
+          ++ikeep;
         }
       }
+      keep_file_offset += ikeep;
     }
 
-    timelog(LOGLEVEL_GENERAL, "Done reading SO catalog.");
-    timelog(LOGLEVEL_GENERAL,
-            "Stats: totNhalo: %zu, totNSO: %zu, totNSOkeep: %zu", _Nhalo, _NSO,
-            _NSOkeep);
+    if (MPI_rank == 0) {
+      timelog(LOGLEVEL_GENERAL, "Stats: totNhalo: %zu, totNkeep: %zu", _Nhalo, _Nkeep);
+    }
+    timelog(LOGLEVEL_GENERAL, "Done reading SOAP catalog.");
 
-    my_assert(_NSOkeep == _MSO.size(), "Size mismatch!");
-    my_assert(_NSOkeep == _XSO.size(), "Size mismatch!");
-    my_assert(_NSOkeep == _YSO.size(), "Size mismatch!");
-    my_assert(_NSOkeep == _ZSO.size(), "Size mismatch!");
-    my_assert(_NSOkeep == _RSO.size(), "Size mismatch!");
-    my_assert(_NSOkeep == _haloIDs.size(), "Size mismatch!");
+    my_assert(_Nkeep == _XSO.size(), "Size mismatch!");
+    my_assert(_Nkeep == _YSO.size(), "Size mismatch!");
+    my_assert(_Nkeep == _ZSO.size(), "Size mismatch!");
+    my_assert(_Nkeep == _RSO.size(), "Size mismatch!");
+    my_assert(_Nkeep == _haloIDs.size(), "Size mismatch!");
 
     // log the class arrays in the memory log, now that their sizes are final
-    memory.add_entry("SO masses", _MSO);
     memory.add_entry("SO x position", _XSO);
     memory.add_entry("SO y position", _YSO);
     memory.add_entry("SO z position", _ZSO);
@@ -920,46 +844,14 @@ public:
   inline size_t number_of_halos() const { return _Nhalo; }
 
   /**
-   * @brief Get the total number of SOs in the catalogue.
-   *
-   * number_of_SOs() <= number_of_halos().
-   *
-   * @return Total number of SOs.
-   */
-  inline size_t number_of_SOs() const { return _NSO; }
-
-  /**
-   * @brief Get the total number of SOs that is retained (i.e. with a mass above
-   * the mass limit).
+   * @brief Get the total number of halos that are retained
    *
    * Properties for retained SOs can be queried using the approperiate functions
    * and an index in the range [0, number_to_keep()].
    *
    * @return Number of SOs actually stored in the SOTable.
    */
-  inline size_t number_to_keep() const { return _NSOkeep; }
-
-  /**
-   * @brief Get the total mass of all SOs in the catalogue.
-   *
-   * @return Total mass of all SOs, in VR mass units (10^10 Msun?).
-   */
-  inline double mass_of_SOs() const { return _TotMSO; }
-
-  /**
-   * @brief Get the total mass of all SOs that are retained.
-   *
-   * @return Total mass of retained SOs, in VR mass units (10^10 Msun?).
-   */
-  inline double mass_to_keep() const { return _TotMSOkeep; }
-
-  /**
-   * @brief Get the mass of an SO.
-   *
-   * @param index SO index in the range [0, number_to_keep()].
-   * @return Mass of that SO, in VR mass units (10^10 Msun?).
-   */
-  inline double MSO(const size_t index) const { return _MSO[index]; }
+  inline size_t number_to_keep() const { return _Nkeep; }
 
   /**
    * @brief Get the x position of an SO.
@@ -1084,27 +976,25 @@ int main(int argc, char **argv) {
 
   if (argc < 8) {
     if (MPI_rank == 0) {
-      std::cerr << "Usage: ./reduce_snapshots VR_OUTPUT_PREFIX "
-                   "SNAPSHOT_FILE_PREFIX MEMBERSHIP__FILE_PREFIX MASS_LIMIT "
+      std::cerr << "Usage: ./reduce_snapshots SOAP_OUTPUT_PREFIX "
+                   "SNAPSHOT_FILE_PREFIX MEMBERSHIP__FILE_PREFIX "
                    "OUTPUT_FILE_PREFIX "
-                   "MASS_SELECTION_NAME RADIUS_SELECTION_NAME [CELLBUFSIZE] "
+                   "RADIUS_SELECTION_NAME [CELLBUFSIZE] "
                    "[HDF5BUFSIZE]"
                 << std::endl;
     }
     my_error("Wrong command line arguments!");
   }
-  const std::string VR_output_prefix(argv[1]);
+  const std::string SOAP_output_prefix(argv[1]);
   const std::string snapshot_file_prefix(argv[2]);
   const std::string membership_file_prefix(argv[3]);
-  double mass_limit = atof(argv[4]);
-  const std::string output_file_prefix(argv[5]);
-  std::string mass_selection_name(argv[6]);
-  std::string radius_selection_name(argv[7]);
-  const uint32_t cellbufsize = (argc > 8) ? atoi(argv[8]) : 8;
-  const size_t hdf5bufsize = (argc > 9) ? atoll(argv[9]) : -1;
+  const std::string output_file_prefix(argv[4]);
+  std::string radius_selection_name(argv[5]);
+  const uint32_t cellbufsize = (argc > 6) ? atoi(argv[6]) : 8;
+  const size_t hdf5bufsize = (argc > 7) ? atoll(argv[7]) : -1;
 
-  const std::string catalog_file = find_file(VR_output_prefix, "");
-  //  const std::string siminfo_file = find_file(VR_output_prefix, ".siminfo");
+  const std::string catalog_file = find_file(SOAP_output_prefix, "");
+  //  const std::string siminfo_file = find_file(SOAP_output_prefix, ".siminfo");
   // it is perfectly normal for both the distributed and non-distributed snaphot
   // file to exist, so we disable only_one
   const std::string snapshot_file =
@@ -1112,17 +1002,12 @@ int main(int argc, char **argv) {
   const std::string master_membership_file =
       find_file(membership_file_prefix, "", ".hdf5", 0);
 
-  // convert from a log10(M/Msun) mass limit to a 10^10 Msun mass limit, because
-  // those are the units VR uses
-  mass_limit -= 10.;
-  mass_limit = std::pow(10., mass_limit);
-
   // output (only rank 0, because we don't want to clutter the stdout
   //  - just yet)
   if (MPI_rank == 0) {
     timelog(LOGLEVEL_GENERAL, "Running on %i rank(s).", MPI_size);
     timelog(LOGLEVEL_GENERAL, "Arguments:");
-    timelog(LOGLEVEL_GENERAL, "VR output prefix: %s", VR_output_prefix.c_str());
+    timelog(LOGLEVEL_GENERAL, "SOAP output prefix: %s", SOAP_output_prefix.c_str());
     timelog(LOGLEVEL_GENERAL, "  Catalog file: %s", catalog_file.c_str());
     timelog(LOGLEVEL_GENERAL, "Snapshot file prefix: %s",
             snapshot_file_prefix.c_str());
@@ -1133,14 +1018,11 @@ int main(int argc, char **argv) {
             master_membership_file.c_str());
     timelog(LOGLEVEL_GENERAL, "Output file prefix: %s",
             output_file_prefix.c_str());
-    timelog(LOGLEVEL_GENERAL, "Mass selection name: %s",
-            mass_selection_name.c_str());
     timelog(LOGLEVEL_GENERAL, "Radius selection name: %s",
             radius_selection_name.c_str());
     timelog(LOGLEVEL_GENERAL, "Cellbufsize: %u", cellbufsize);
     timelog(LOGLEVEL_GENERAL, "HDF5bufsize: %s",
             human_readable_bytes(hdf5bufsize).c_str());
-    timelog(LOGLEVEL_GENERAL, "Mass limit in internal units: %g", mass_limit);
   }
 
   if (MPI_rank == 0) {
@@ -1169,8 +1051,7 @@ int main(int argc, char **argv) {
   }
 
   // read the SOTable: this is the entire first step mentioned above
-  const SOTable SOtable(VR_output_prefix, mass_selection_name,
-                        radius_selection_name, mass_limit, memory);
+  const SOTable SOtable(SOAP_output_prefix, radius_selection_name, memory);
 
   MPI_Barrier(MPI_COMM_WORLD);
 
@@ -1633,7 +1514,7 @@ int main(int argc, char **argv) {
               // if the cell positions were periodically wrapped, we use a
               // different condition to check whether the particle is in the
               // cell
-              if (!wrap) {
+              if (!wrap[ix]) {
                 if (cell_low[ix] > partpos[3 * totipart + ix] ||
                     cell_high[ix] < partpos[3 * totipart + ix]) {
                   is_out = true;
@@ -1720,14 +1601,9 @@ int main(int argc, char **argv) {
                     haloIDs[itype][offset + ipart] = SOID;
                     ++this_keepcount;
                   } else {
-                    // duplicate! We have to choose one of the two SOs
-                    // it was decided to only retain the most massive SO
+                    // duplicate! We just keep the first halo id that was
+                    // assigned to the particle.
                     ++this_dupcount;
-                    const int64_t oldhalo = haloIDs[itype][offset + ipart];
-                    const int64_t newhalo = SOID;
-                    if (SOtable.MSO(oldhalo) < SOtable.MSO(newhalo)) {
-                      haloIDs[itype][offset + ipart] = newhalo;
-                    }
                   }
                 }
               }
@@ -1812,11 +1688,6 @@ int main(int argc, char **argv) {
 #pragma omp critical
             ++new_sizes[orphan.type][orphan.cell];
             ++this_keepcount;
-          } else {
-            const int64_t oldhalo = haloIDs[orphan.type][orphan.index];
-            if (SOtable.MSO(oldhalo) < SOtable.MSO(iSO)) {
-              haloIDs[orphan.type][orphan.index] = iSO;
-            }
           }
         }
       }
@@ -1978,16 +1849,13 @@ int main(int argc, char **argv) {
       HDF5FileOrGroup membergroup = OpenGroup(memberfile, groupnamestr.str());
       std::vector<std::string> membernames;
       std::vector<std::string> memberdescr;
-      membernames.push_back("GroupNr_all");
-      memberdescr.push_back("Index of halo in which this particle is a member "
-                            "(bound or unbound), or -1 if none");
       membernames.push_back("GroupNr_bound");
       memberdescr.push_back("Index of halo in which this particle is a bound "
                             "member, or -1 if none");
       membernames.push_back("Rank_bound");
       memberdescr.push_back("Ranking by binding energy of the bound particles "
                             "(first in halo=0), or -1 if not bound");
-      for (uint_fast8_t imember = 0; imember < 3; ++imember) {
+      for (uint_fast8_t imember = 0; imember < 2; ++imember) {
         std::vector<int32_t> memberdata(mask.size());
         std::vector<int32_t> memberdata_masked(SOpcount[itype]);
         ReadEntireDataset(membergroup, membernames[imember], memberdata);
@@ -2294,16 +2162,13 @@ int main(int argc, char **argv) {
       CloseDataset(ds);
       std::vector<std::string> membernames;
       std::vector<std::string> memberdescr;
-      membernames.push_back("GroupNr_all");
-      memberdescr.push_back("Index of halo in which this particle is a member "
-                            "(bound or unbound), or -1 if none");
       membernames.push_back("GroupNr_bound");
       memberdescr.push_back("Index of halo in which this particle is a bound "
                             "member, or -1 if none");
       membernames.push_back("Rank_bound");
       memberdescr.push_back("Ranking by binding energy of the bound particles "
                             "(first in halo=0), or -1 if not bound");
-      for (uint_fast8_t imember = 0; imember < 3; ++imember) {
+      for (uint_fast8_t imember = 0; imember < 2; ++imember) {
         WriteVirtualDataset<int32_t>(new_group, membernames[imember],
                                      groupnamestr.str(), file_offsets[itype],
                                      all_files);
@@ -2399,7 +2264,7 @@ int main(int argc, char **argv) {
   MPI_Barrier(MPI_COMM_WORLD);
   if (MPI_rank == 0) {
     std::cout << "Done." << std::endl;
-    std::cout << "Took " << global_timer.current_time() << " ms." << std::endl;
+    std::cout << "Took " << global_timer.current_time() << " s." << std::endl;
   }
 
   // wait for the other ranks and exit
