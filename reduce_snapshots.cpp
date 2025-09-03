@@ -600,8 +600,6 @@ private:
   std::vector<double> _ZSO;
   /*! @brief SO radii. */
   std::vector<double> _RSO;
-  /*! @brief SO masses */
-  std::vector<double> _MSO;
   /*! @brief IDs of the halos. */
   std::vector<uint64_t> _haloIDs;
 
@@ -734,11 +732,9 @@ public:
       }
       CofP.clear();
 
-      
-      // HDF5FileOrGroup SOAPgroup = OpenGroup(file, "SOAP");
-      // ReadEntireDataset(SOAPgroup, "IncludedInReducedSnapshot", keep);
-      HDF5FileOrGroup SOAPgroup = OpenGroup(file, "InputHalos");
-      ReadEntireDataset(SOAPgroup, "IsCentral", keep);
+      HDF5FileOrGroup SOAPgroup = OpenGroup(file, "SOAP");
+      ReadEntireDataset(SOAPgroup, "IncludedInReducedSnapshot", keep);
+
       {
         const auto radius_path = decompose_dataset_path(radius_selection_name);
         const auto group_names = radius_path.first;
@@ -1605,17 +1601,9 @@ int main(int argc, char **argv) {
                     haloIDs[itype][offset + ipart] = SOID;
                     ++this_keepcount;
                   } else {
-                    // duplicate! particle has been assigned to multiple halo ids
-                    // We must decide which halo to assign this particle too. 
-                    // 
-                    // Assign particle to closest halo as function of r/R200c
-                    // 
+                    // duplicate! We just keep the first halo id that was
+                    // assigned to the particle.
                     ++this_dupcount;
-                    const int64_t oldhalo = haloIDs[itype][offset + ipart];
-                    const int64_t newhalo = SOID;
-                    if (d/SOtable.RSO(newhalo) < d/SOtable.RSO(oldhalo)) {
-                      haloIDs[itype][offset + ipart] = newhalo;
-                    }
                   }
                 }
               }
@@ -1700,7 +1688,6 @@ int main(int argc, char **argv) {
 #pragma omp critical
             ++new_sizes[orphan.type][orphan.cell];
             ++this_keepcount;
-          }
           }
         }
       }
