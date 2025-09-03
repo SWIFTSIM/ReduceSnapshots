@@ -1068,8 +1068,10 @@ int main(int argc, char **argv) {
   // since we do not want to be general right now, we fix the number of types
   // to 5 and use this auxiliary array to convert our itype indices to the
   // actual type indices.
-  const uint_fast32_t typelist[5] = {0, 1, 4, 5, 6};
-
+  // const uint_fast32_t typelist[5] = {0, 1, 4, 5, 6}; old lines
+  // only want to update and keep gas(0) & BHs (5)
+  // Also needed to update and replace all itype < 5 to itype < 2
+  const uint_fast32_t typelist[2] = {0, 5};
 
   /// step 2 (from above)
 
@@ -1121,11 +1123,11 @@ int main(int argc, char **argv) {
   }
 
   subgroup = OpenGroup(group, "OffsetsInFile");
-  std::vector<int64_t> part_offsets[5];
+  std::vector<int64_t> part_offsets[2];
   // we will be updating the offsets (and sizes) when we remove particles
   // it (sort of?) makes sense to create these vectors now
-  std::vector<int64_t> new_offsets[5];
-  for (uint_fast32_t itype = 0; itype < 5; ++itype) {
+  std::vector<int64_t> new_offsets[2];
+  for (uint_fast32_t itype = 0; itype < 2; ++itype) {
     if (numpart_total[typelist[itype]] == 0) {
       continue;
     }
@@ -1140,9 +1142,9 @@ int main(int argc, char **argv) {
   CloseGroup(subgroup);
 
   subgroup = OpenGroup(group, "Counts");
-  std::vector<int64_t> part_sizes[5];
-  std::vector<int64_t> new_sizes[5];
-  for (uint_fast32_t itype = 0; itype < 5; ++itype) {
+  std::vector<int64_t> part_sizes[2];
+  std::vector<int64_t> new_sizes[2];
+  for (uint_fast32_t itype = 0; itype < 2; ++itype) {
     if (numpart_total[typelist[itype]] == 0) {
       continue;
     }
@@ -1156,12 +1158,13 @@ int main(int argc, char **argv) {
   }
   CloseGroup(subgroup);
 
-  std::vector<int32_t> files[5];
+  // std::vector<int32_t> files[5];
+  std::vector<int32_t> files[2];
   // note: no need to update this vector: particles stay in the file they are in
   // if they are allowed to stay at all
   if (nfile[0] > 1) {
     subgroup = OpenGroup(group, "Files");
-    for (uint_fast32_t itype = 0; itype < 5; ++itype) {
+    for (uint_fast32_t itype = 0; itype < 2; ++itype) {
       if (numpart_total[typelist[itype]] == 0) {
         continue;
       }
@@ -1240,8 +1243,8 @@ int main(int argc, char **argv) {
   // we need to store the number of (retained) particles in each new output
   // file, since this determines the new offsets of the top-level cells in the
   // new virtual meta-file
-  std::vector<int64_t> file_offsets[5];
-  for (uint_fast8_t itype = 0; itype < 5; ++itype) {
+  std::vector<int64_t> file_offsets[2];
+  for (uint_fast8_t itype = 0; itype < 2; ++itype) {
     file_offsets[itype].resize(nfile[0], 0);
   }
   // start the main file loop
@@ -1269,17 +1272,17 @@ int main(int argc, char **argv) {
     // way (per definition) to know which top-level cell an orphan belongs to
     size_t tot_SO_count = 0;
     std::vector<struct Orphan> orphans;
-    std::vector<int64_t> haloIDs[5];
+    std::vector<int64_t> haloIDs[2];
     haloIDs[0].resize(numpart_thisfile[0], -1);
-    haloIDs[1].resize(numpart_thisfile[1], -1);
-    haloIDs[2].resize(numpart_thisfile[4], -1);
-    haloIDs[3].resize(numpart_thisfile[5], -1);
-    haloIDs[4].resize(numpart_thisfile[6], -1);
+    // haloIDs[1].resize(numpart_thisfile[1], -1);
+    // haloIDs[2].resize(numpart_thisfile[4], -1);
+    haloIDs[1].resize(numpart_thisfile[5], -1);
+    // haloIDs[4].resize(numpart_thisfile[6], -1);
     memory_ifile.add_entry(ifilename.str() + " haloIDs0", haloIDs[0]);
     memory_ifile.add_entry(ifilename.str() + " haloIDs1", haloIDs[1]);
-    memory_ifile.add_entry(ifilename.str() + " haloIDs2", haloIDs[2]);
-    memory_ifile.add_entry(ifilename.str() + " haloIDs3", haloIDs[3]);
-    memory_ifile.add_entry(ifilename.str() + " haloIDs4", haloIDs[4]);
+    // memory_ifile.add_entry(ifilename.str() + " haloIDs2", haloIDs[2]);
+    // memory_ifile.add_entry(ifilename.str() + " haloIDs3", haloIDs[3]);
+    // memory_ifile.add_entry(ifilename.str() + " haloIDs4", haloIDs[4]);
     // count
     //  - the number of retained particles
     //  - the number of particles outside the box (for analysis)
@@ -1323,7 +1326,7 @@ int main(int argc, char **argv) {
         const size_t icell = cellbufsize * icellchunk + ichunk;
         if (nfile[0] > 1) {
           bool has_parts = false;
-          for (int_fast8_t itype = 0; itype < 5; ++itype) {
+          for (int_fast8_t itype = 0; itype < 2; ++itype) {
             if (files[itype].size() > 0) {
               has_parts |= files[itype][icell] == tfile[0];
             }
@@ -1384,7 +1387,7 @@ int main(int argc, char **argv) {
           memory_icellchunk.add_loop_scope("PartType loop");
       // now process the particles in the chunk
       // we have to process the different particle types separately
-      for (uint_fast32_t itype = 0; itype < 5; ++itype) {
+      for (uint_fast32_t itype = 0; itype < 2; ++itype) {
         if (numpart_thisfile[typelist[itype]] == 0) {
           continue;
         }
@@ -1771,9 +1774,10 @@ int main(int argc, char **argv) {
     // the number of particles that remain
     size_t totcount = 0;
     size_t oldtotcount = 0;
-    size_t SOpcount[5] = {0, 0, 0, 0, 0};
+    // size_t SOpcount[5] = {0, 0, 0, 0, 0};
+    size_t SOpcount[2] = {0, 0};
     timelog(LOGLEVEL_CHUNKLOOPS, "Remaining particles in chunk:");
-    for (uint_fast32_t itype = 0; itype < 5; ++itype) {
+    for (uint_fast32_t itype = 0; itype < 2; ++itype) {
       size_t this_SOpcount = 0;
 #pragma omp parallel for default(shared) reduction(+ : this_SOpcount)
       for (size_t ipart = 0; ipart < haloIDs[itype].size(); ++ipart) {
@@ -1789,13 +1793,20 @@ int main(int argc, char **argv) {
             oldtotcount);
     my_assert(totcount == keepcount, "Particle number mismatch!");
 
+    // const int64_t new_numpart_thisfile[7] = {static_cast<int64_t>(SOpcount[0]),
+    //                                          static_cast<int64_t>(SOpcount[1]),
+    //                                          0,
+    //                                          0,
+    //                                          static_cast<int64_t>(SOpcount[2]),
+    //                                          static_cast<int64_t>(SOpcount[3]),
+    //                                          static_cast<int64_t>(SOpcount[4])};
     const int64_t new_numpart_thisfile[7] = {static_cast<int64_t>(SOpcount[0]),
+                                             0,
+                                             0,
+                                             0,
+                                             0,
                                              static_cast<int64_t>(SOpcount[1]),
-                                             0,
-                                             0,
-                                             static_cast<int64_t>(SOpcount[2]),
-                                             static_cast<int64_t>(SOpcount[3]),
-                                             static_cast<int64_t>(SOpcount[4])};
+                                             0};
 
     // now create the new output file that only contains the remaining particles
     const std::string output_file_name = compose_filename(
@@ -1828,10 +1839,10 @@ int main(int argc, char **argv) {
             output_file_name.c_str());
     std::vector<std::string> blacklist;
     blacklist.push_back("PartType0");
-    blacklist.push_back("PartType1");
-    blacklist.push_back("PartType4");
+    // blacklist.push_back("PartType1");
+    // blacklist.push_back("PartType4");
     blacklist.push_back("PartType5");
-    blacklist.push_back("PartType6");
+    // blacklist.push_back("PartType6");
     CopyEverythingExcept(partfile, outfile, blacklist);
 
     // we have not copied the particle data, since these datasets actually
@@ -1839,7 +1850,7 @@ int main(int argc, char **argv) {
     // loop over the particle types and manually copy the retained data over
     timelog(LOGLEVEL_GENERAL, "Adding halo ID dataset...");
     auto memory_itype_loop = memory_ifile.add_loop_scope("PartType loop");
-    for (uint_fast32_t itype = 0; itype < 5; ++itype) {
+    for (uint_fast32_t itype = 0; itype < 2; ++itype) {
       // only bother if there are still particles left to copy
       if (new_numpart_thisfile[typelist[itype]] == 0) {
         continue;
@@ -2009,7 +2020,7 @@ int main(int argc, char **argv) {
     for (uint_fast8_t i = 0; i < 7; ++i) {
       new_numpart_total[i] += new_numpart_thisfile[i];
     }
-    for (uint_fast8_t itype = 0; itype < 5; ++itype) {
+    for (uint_fast8_t itype = 0; itype < 2; ++itype) {
       file_offsets[itype][local_files[ifile].first] =
           new_numpart_thisfile[typelist[itype]];
     }
@@ -2024,7 +2035,7 @@ int main(int argc, char **argv) {
   // we are done processing all files (on this rank at least)
   // now accumulate the data from other ranks (if there are other ranks)
   // adjust cell data
-  for (uint_fast32_t itype = 0; itype < 5; ++itype) {
+  for (uint_fast32_t itype = 0; itype < 2; ++itype) {
     if (files[itype].size() == 0) {
       continue;
     }
@@ -2120,7 +2131,7 @@ int main(int argc, char **argv) {
     timelog(LOGLEVEL_GENERAL, "Updating file %s", output_file_name.c_str());
     const HDF5FileOrGroup outfile =
         OpenFile(output_file_name, HDF5FileModeAppend);
-    for (uint_fast32_t itype = 0; itype < 5; ++itype) {
+    for (uint_fast32_t itype = 0; itype < 2; ++itype) {
       if (new_numpart_total[typelist[itype]] == 0) {
         continue;
       }
@@ -2153,7 +2164,7 @@ int main(int argc, char **argv) {
     timelog(LOGLEVEL_GENERAL, "Copying virtual file...");
 
     // convert file sizes to cumulative offsets
-    for (uint_fast8_t itype = 0; itype < 5; ++itype) {
+    for (uint_fast8_t itype = 0; itype < 2; ++itype) {
       for (int32_t ifile = 1; ifile < nfile[0]; ++ifile) {
         file_offsets[itype][ifile] += file_offsets[itype][ifile - 1];
       }
@@ -2174,15 +2185,15 @@ int main(int argc, char **argv) {
         OpenFile(new_virtual_file, HDF5FileModeWrite);
     std::vector<std::string> blacklist;
     blacklist.push_back("PartType0");
-    blacklist.push_back("PartType1");
-    blacklist.push_back("PartType4");
+    // blacklist.push_back("PartType1");
+    // blacklist.push_back("PartType4");
     blacklist.push_back("PartType5");
-    blacklist.push_back("PartType6");
+    // blacklist.push_back("PartType6");
     // general copy of the old file without the particle groups
     CopyEverythingExcept(old_file, new_file, blacklist);
 
     // per type copy (creation) of the new virtual particle datasets
-    for (uint_fast32_t itype = 0; itype < 5; ++itype) {
+    for (uint_fast32_t itype = 0; itype < 2; ++itype) {
       if (new_numpart_total[typelist[itype]] == 0) {
         continue;
       }
@@ -2279,7 +2290,7 @@ int main(int argc, char **argv) {
     // they now are based on a single file
     // in practice, this means we need to add an additional offset to the cell
     // offsets that depends on the file index for the particular cell
-    for (uint_fast32_t itype = 0; itype < 5; ++itype) {
+    for (uint_fast32_t itype = 0; itype < 2; ++itype) {
       if (new_numpart_total[typelist[itype]] == 0) {
         continue;
       }
