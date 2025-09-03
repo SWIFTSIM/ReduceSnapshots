@@ -600,8 +600,6 @@ private:
   std::vector<double> _ZSO;
   /*! @brief SO radii. */
   std::vector<double> _RSO;
-  /*! @brief SO masses */
-  std::vector<double> _MSO;
   /*! @brief IDs of the halos. */
   std::vector<uint64_t> _haloIDs;
 
@@ -634,9 +632,12 @@ public:
    * variable Overdensity_output_maximum_radius_in_critical_density. But again,
    * any possible valid array would work (including those that do not represent
    * any radius at all, so be careful - again!).
+   * @param keep_selection_name Name of the array in the .properties file that
+   * will be used to determine which halos to keep
    * @param memory MemoryLogBlock used to log memory usage.
    */
   SOTable(const std::string prefix, const std::string radius_selection_name,
+          const std::string keep_selection_name,
           MemoryLog::MemoryLogBlock &memory)
       : _prefix(prefix) {
 
@@ -734,11 +735,16 @@ public:
       }
       CofP.clear();
 
-      
-      // HDF5FileOrGroup SOAPgroup = OpenGroup(file, "SOAP");
-      // ReadEntireDataset(SOAPgroup, "IncludedInReducedSnapshot", keep);
-      HDF5FileOrGroup SOAPgroup = OpenGroup(file, "InputHalos");
-      ReadEntireDataset(SOAPgroup, "IsCentral", keep);
+      if (keep_selection_name == "SOAP/IncludedInReducedSnapshot") {
+        HDF5FileOrGroup SOAPgroup = OpenGroup(file, "SOAP");
+        ReadEntireDataset(SOAPgroup, "IncludedInReducedSnapshot", keep);
+      } else if (keep_selection_name == "InputHalos/IsCentral") {
+        HDF5FileOrGroup SOAPgroup = OpenGroup(file, "InputHalos");
+        ReadEntireDataset(SOAPgroup, "IsCentral", keep);
+      } else {
+        my_error("Invalid keep_selection_name");
+      }
+
       {
         const auto radius_path = decompose_dataset_path(radius_selection_name);
         const auto group_names = radius_path.first;
@@ -983,7 +989,8 @@ int main(int argc, char **argv) {
       std::cerr << "Usage: ./reduce_snapshots SOAP_OUTPUT_PREFIX "
                    "SNAPSHOT_FILE_PREFIX MEMBERSHIP__FILE_PREFIX "
                    "OUTPUT_FILE_PREFIX "
-                   "RADIUS_SELECTION_NAME [CELLBUFSIZE] "
+                   "RADIUS_SELECTION_NAME "
+                   "KEEP_SELECTION_NAME [CELLBUFSIZE] "
                    "[HDF5BUFSIZE]"
                 << std::endl;
     }
@@ -994,8 +1001,9 @@ int main(int argc, char **argv) {
   const std::string membership_file_prefix(argv[3]);
   const std::string output_file_prefix(argv[4]);
   std::string radius_selection_name(argv[5]);
-  const uint32_t cellbufsize = (argc > 6) ? atoi(argv[6]) : 8;
-  const size_t hdf5bufsize = (argc > 7) ? atoll(argv[7]) : -1;
+  std::string keep_selection_name(argv[6]);
+  const uint32_t cellbufsize = (argc > 7) ? atoi(argv[7]) : 8;
+  const size_t hdf5bufsize = (argc > 8) ? atoll(argv[8]) : -1;
 
   const std::string catalog_file = find_file(SOAP_output_prefix, "");
   //  const std::string siminfo_file = find_file(SOAP_output_prefix, ".siminfo");
@@ -1024,6 +1032,8 @@ int main(int argc, char **argv) {
             output_file_prefix.c_str());
     timelog(LOGLEVEL_GENERAL, "Radius selection name: %s",
             radius_selection_name.c_str());
+    timelog(LOGLEVEL_GENERAL, "Keep selection name: %s",
+            keep_selection_name.c_str());
     timelog(LOGLEVEL_GENERAL, "Cellbufsize: %u", cellbufsize);
     timelog(LOGLEVEL_GENERAL, "HDF5bufsize: %s",
             human_readable_bytes(hdf5bufsize).c_str());
@@ -1055,7 +1065,7 @@ int main(int argc, char **argv) {
   }
 
   // read the SOTable: this is the entire first step mentioned above
-  const SOTable SOtable(SOAP_output_prefix, radius_selection_name, memory);
+  const SOTable SOtable(SOAP_output_prefix, radius_selection_name, keep_selection_name, memory);
 
   MPI_Barrier(MPI_COMM_WORLD);
 
@@ -1605,17 +1615,9 @@ int main(int argc, char **argv) {
                     haloIDs[itype][offset + ipart] = SOID;
                     ++this_keepcount;
                   } else {
-                    // duplicate! particle has been assigned to multiple halo ids
-                    // We must decide which halo to assign this particle too. 
-                    // 
-                    // Assign particle to closest halo as function of r/R200c
-                    // 
+                    // duplicate! We just keep the first halo id that was
+                    // assigned to the particle.
                     ++this_dupcount;
-                    const int64_t oldhalo = haloIDs[itype][offset + ipart];
-                    const int64_t newhalo = SOID;
-                    if (d/SOtable.RSO(newhalo) < d/SOtable.RSO(oldhalo)) {
-                      haloIDs[itype][offset + ipart] = newhalo;
-                    }
                   }
                 }
               }
@@ -1700,7 +1702,6 @@ int main(int argc, char **argv) {
 #pragma omp critical
             ++new_sizes[orphan.type][orphan.cell];
             ++this_keepcount;
-          }
           }
         }
       }

@@ -44,6 +44,9 @@ out="${outdir}/flamingo_${snapnum}/flamingo_${snapnum}"
 # radius variable inside which particles are kept
 RlimVar=SO/100_crit/SORadius
 
+# property variable to detemine which halos to keep
+KeepVar=SOAP/IncludedInReducedSnapshot
+
 # number of SWIFT cells that is processed in one go
 # a larger number is better for performance, while a smaller number is better
 # for memory usage
@@ -62,7 +65,7 @@ export I_MPI_THREAD_YIELD=2
 
 # note that the number of ranks cannot exceed the number of snapshot files,
 mpirun -- ${code} ${cat} ${snap} ${mem} ${out} \
-  ${RlimVar} ${Ncell} ${block_size}
+  ${RlimVar} ${KeepVar} ${Ncell} ${block_size}
 
 echo "Job complete!"
 
