@@ -85,9 +85,6 @@
 using namespace HDF5;
 namespace fs = std::experimental::filesystem;
 
-// activate this to set Lustre striping to 1 on new output files
-#define SET_STRIPING
-
 // Available log levels:
 //  - output log messages from innermost loops
 #define LOGLEVEL_FILELOOPS 2
@@ -1746,21 +1743,6 @@ int main(int argc, char **argv) {
     // now create the new output file that only contains the remaining particles
     const std::string output_file_name = compose_filename(
         output_file_prefix, ".hdf5", local_files[ifile].first, nfile[0] > 1);
-#ifdef SET_STRIPING
-    {
-      std::stringstream stripe_command;
-      stripe_command << "lfs setstripe -c 1 -i " << (MPI_rank % 192) << " "
-                     << output_file_name;
-      timelog(LOGLEVEL_GENERAL, "Running lfs command \"%s\".",
-              stripe_command.str().c_str());
-      int return_value = system(stripe_command.str().c_str());
-      if (return_value != 0) {
-        timelog(LOGLEVEL_GENERAL,
-                "Unable to set striping for file \"%s\". Continuing anyway.",
-                output_file_name.c_str());
-      }
-    }
-#endif
     HDF5FileOrGroup outfile = OpenFile(output_file_name, HDF5FileModeWrite);
 
     // first, copy everything in the file that does not require changing
