@@ -7,8 +7,8 @@
 # mkdir logs
 # sbatch -J HYDRO_FIDUCIAL --array=0-78%4 ./scripts/reduce_snapshots_L2800N5040.sh
 
-#SBATCH --ntasks=32
-#SBATCH --cpus-per-task=4
+#SBATCH --ntasks=21
+#SBATCH --cpus-per-task=6
 #SBATCH -o /snap8/scratch/dp004/dc-mcgi1/ReduceSnapshots/logs/reduce_L2800N5040_%x.%a.%A.out
 #SBATCH -p cosma8
 #SBATCH -A dp004
