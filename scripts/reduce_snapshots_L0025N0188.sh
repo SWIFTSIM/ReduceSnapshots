@@ -1,0 +1,70 @@
+#! /bin/bash
+
+# Create reduced snapshots from a SOAP catalogue and a full snapshot
+#
+# Submit passing run and snapshots to process, e.g.
+# cd ReduceSnapshots
+# mkdir logs
+# sbatch -J Thermal --array=0-127%4 ./scripts/reduce_snapshots_L0025N0188.sh
+
+#SBATCH --ntasks=32
+#SBATCH --cpus-per-task=4
+#SBATCH -o logs/reduce_L0025N0188_%x.%a.%A.out
+#SBATCH -p cosma8
+#SBATCH -A dp004
+#SBATCH -t 02:00:00
+
+set -e
+
+module purge
+module load gnu_comp/14.1.0 openmpi/5.0.3 parallel_hdf5/1.12.3
+
+# get the snapshot index from the array task ID
+snapnum=`printf '%04d' ${SLURM_ARRAY_TASK_ID}`
+
+# folder where the snapshot files are stored
+snapdir="/cosma8/data/dp004/colibre/Runs/L0025N0188/${SLURM_JOB_NAME}/snapshots"
+# folder where the SOAP files are stored
+soapdir="/cosma8/data/dp004/colibre/Runs/L0025N0188/${SLURM_JOB_NAME}/SOAP-HBT"
+# output folder for the reduced snapshot
+outdir="/snap8/scratch/dp004/dc-mcgi1/COLIBRE/reduced_snapshots/L0025N0188/${SLURM_JOB_NAME}/snapshots_reduced"
+
+# full path to the compiled snapshot reduction executable
+code=reduce_snapshots
+# full path to the SOAP halo catalogue
+cat="${soapdir}/halo_properties_${snapnum}.hdf5"
+# full path to the original snapshot, excluding the .hdf5 and rank extension
+# (i.e. colibre_0077 instead of colibre_0077.2.hdf5 or colibre_0077.hdf5)
+snap="${snapdir}/colibre_${snapnum}/colibre_${snapnum}"
+# full path to the membership files, excluding the .hdf5 and rank extension
+mem="${soapdir}/membership_${snapnum}/membership_${snapnum}"
+# full path to the output files, excluding the .hdf5 and rank extension
+out="${outdir}/colibre_${snapnum}/colibre_${snapnum}"
+
+# radius variable inside which particles are kept
+RlimVar=SO/200_crit/SORadius
+
+# property variable to detemine which halos to keep
+KeepVar=InputHalos/IsCentral
+
+# number of SWIFT cells that is processed in one go
+# a larger number is better for performance, while a smaller number is better
+# for memory usage
+Ncell=512
+# HDF5 block size for copying operations
+# a larger number is better for performance, but uses more memory
+# on cosma 8, this can be set to 18446744073709551615, which is basically
+# unlimited
+block_size=18446744073709551615
+
+# prevent MPI ranks from busy-looping in barriers
+# this reduces the system load during periods of imbalances and makes more
+# threads available for OpenMP
+export I_MPI_WAIT_MODE=1
+export I_MPI_THREAD_YIELD=2
+
+# note that the number of ranks cannot exceed the number of snapshot files,
+mpirun -- ${code} ${cat} ${snap} ${mem} ${out} \
+  ${RlimVar} ${KeepVar} ${Ncell} ${block_size}
+
+echo "Job complete!"
